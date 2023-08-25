@@ -36,13 +36,17 @@ def index():
 def post(post_id):
     post = get_post(post_id)
     if post is None:
+      app.logger.info('{time} | Article with id "{id}" does not exist!'.format(time=datetime.now().strftime("%m/%d/%Y, %H:%M:%S"),id=post_id))
       return render_template('404.html'), 404
     else:
+      app.logger.info('{time} | Article "{title}" retrieved!'.format(
+        time=datetime.now().strftime("%m/%d/%Y, %H:%M:%S"),title=post['title']))
       return render_template('post.html', post=post)
 
 # Define the About Us page
 @app.route('/about')
 def about():
+    app.logger.info('About page rendered!')
     return render_template('about.html')
 
 # Define the post creation functionality 
@@ -60,10 +64,33 @@ def create():
                          (title, content))
             connection.commit()
             connection.close()
+            app.logger.info('{time} | Article "{title}" created!'.format(time=datetime.now().strftime("%m/%d/%Y, %H:%M:%S"),title=title))
 
             return redirect(url_for('index'))
 
     return render_template('create.html')
+
+@app.route('/healthz')
+def healthcheck():
+    response = app.response_class(
+            response=json.dumps({"result":"OK - healthy"}),
+            status=200,
+            mimetype='application/json'
+    )
+    app.logger.info('Status request successfull')
+    app.logger.debug('DEBUG message')
+    return response
+
+@app.route('/metrics')
+def metrics():
+    app.logger.debug('DEBUG message')
+    connection = get_db_connection()
+    posts = connection.execute('SELECT * FROM posts').fetchall()
+    connection.close()
+    post_count = len(posts)
+    data = {"db_connection_count": connection_count, "post_count": post_count}
+    return data
+
 
 # start the application on port 3111
 if __name__ == "__main__":
