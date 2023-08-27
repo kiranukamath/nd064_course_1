@@ -1,17 +1,24 @@
 import sqlite3
+import logging, sys
 
 from flask import Flask, jsonify, json, render_template, request, url_for, redirect, flash
 from werkzeug.exceptions import abort
 
+connection_count = 0
+
 # Function to get a database connection.
 # This function connects to database with the name `database.db`
 def get_db_connection():
+    app.logger.debug("Connection to the database..")
+    global connection_count
     connection = sqlite3.connect('database.db')
     connection.row_factory = sqlite3.Row
+    connection_count += 1
     return connection
 
 # Function to get a post using its ID
 def get_post(post_id):
+    app.logger.debug(f"Get post {post_id}..")
     connection = get_db_connection()
     post = connection.execute('SELECT * FROM posts WHERE id = ?',
                         (post_id,)).fetchone()
@@ -25,6 +32,7 @@ app.config['SECRET_KEY'] = 'your secret key'
 # Define the main route of the web application 
 @app.route('/')
 def index():
+    app.logger.debug(f"Getting all posts..")
     connection = get_db_connection()
     posts = connection.execute('SELECT * FROM posts').fetchall()
     connection.close()
@@ -36,22 +44,50 @@ def index():
 def post(post_id):
     post = get_post(post_id)
     if post is None:
-      app.logger.info('{time} | Article with id "{id}" does not exist!'.format(time=datetime.now().strftime("%m/%d/%Y, %H:%M:%S"),id=post_id))
+      app.logger.warning(f'Article with id {post_id} not found')
       return render_template('404.html'), 404
     else:
-      app.logger.info('{time} | Article "{title}" retrieved!'.format(
-        time=datetime.now().strftime("%m/%d/%Y, %H:%M:%S"),title=post['title']))
+      app.logger.debug(post)
+      app.logger.debug(f"Returning post {post_id}: {post['title']}")
+      postTitle = post['title']
+      app.logger.info(f'Article "{postTitle}" retrieved!')
       return render_template('post.html', post=post)
 
 # Define the About Us page
 @app.route('/about')
 def about():
-    app.logger.info('About page rendered!')
+    app.logger.debug("/about endpoint reached..")
+    app.logger.info(f'About page visited')
+
     return render_template('about.html')
+
+@app.route('/healthz')
+def health():
+     app.logger.debug(f" /healthz endpoint reached..")
+     return app.response_class(
+        response=json.dumps({ 'result': 'OK - healthy' }),
+        status=200,
+        mimetype='application/json'
+    )
+    
+@app.route('/metrics')
+def metrics():
+    app.logger.debug(f"/metrics endpoint reached..")
+    connection = get_db_connection()
+    post_count = connection.execute('SELECT count(1) from posts').fetchone()[0]
+    return app.response_class(
+        response=json.dumps({
+            'post_count': post_count,
+            'db_connection_count': connection_count
+        }),
+        status=200,
+        mimetype='application/json'
+    )
 
 # Define the post creation functionality 
 @app.route('/create', methods=('GET', 'POST'))
 def create():
+    app.logger.debug("/create post endpoint reached..")
     if request.method == 'POST':
         title = request.form['title']
         content = request.form['content']
@@ -64,34 +100,13 @@ def create():
                          (title, content))
             connection.commit()
             connection.close()
-            app.logger.info('{time} | Article "{title}" created!'.format(time=datetime.now().strftime("%m/%d/%Y, %H:%M:%S"),title=title))
+            app.logger.info(f'Article "{title}" created')
 
             return redirect(url_for('index'))
 
     return render_template('create.html')
 
-@app.route('/healthz')
-def healthcheck():
-    response = app.response_class(
-            response=json.dumps({"result":"OK - healthy"}),
-            status=200,
-            mimetype='application/json'
-    )
-    app.logger.info('Status request successfull')
-    app.logger.debug('DEBUG message')
-    return response
-
-@app.route('/metrics')
-def metrics():
-    app.logger.debug('DEBUG message')
-    connection = get_db_connection()
-    posts = connection.execute('SELECT * FROM posts').fetchall()
-    connection.close()
-    post_count = len(posts)
-    data = {"db_connection_count": connection_count, "post_count": post_count}
-    return data
-
-
 # start the application on port 3111
-if __name__ == "__main__":
+if __name__ == "__main__":   
+   logging.basicConfig(format='%(levelname)s:%(name)s:%(asctime)s, %(message)s', datefmt='%m/%d/%Y, %H:%M:%S',level=logging.DEBUG)
    app.run(host='0.0.0.0', port='3111')
